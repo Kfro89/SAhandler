@@ -1,0 +1,60 @@
+@isTest
+public class SalesAgreementHandlerTest {
+@isTest
+    public static  void TestMethod1() {
+        // Create test Account
+        Account testAccount = new Account(Name = 'Test Account');
+        insert testAccount;
+
+        // Create test SalesAgreement
+        SalesAgreement testAgreement = new SalesAgreement(
+            AccountId = testAccount.Id,
+            ScheduleCount= 12,
+            Name='Test Agreement',
+            ScheduleFrequency='Monthly',
+            PricebookId=System.Label.Manufacturing_Pricebook_Id,
+            ActualsCalculationMode  = 'Manual',
+            AgreementType='Volume',
+            ProductLevel='Product',
+            Status = 'Draft',
+            StartDate = Date.today()  // Start date in the past
+        );
+        insert testAgreement;
+        // Create products
+        Product2 newProd = new Product2(Name = 'test product', family = 'test family');
+        insert newProd;
+        PriceBookEntry pbEntry = new PriceBookEntry(
+            UnitPrice = 300,
+            PriceBook2Id  = Test.getStandardPricebookId(),
+            Product2Id = newProd.Id,
+            IsActive = true);
+            insert pbEntry ;
+   PriceBookEntry pbEntry1 = new PriceBookEntry(
+            UnitPrice = 300,
+            PriceBook2Id  = System.Label.Manufacturing_Pricebook_Id,
+            Product2Id = newProd.Id,
+            IsActive = true);
+            insert pbEntry1 ;
+        SalesAgreementProduct s = new SalesAgreementProduct(Name='T',SalesAgreementId=testAgreement.id,PricebookEntryId=pbEntry1.id,InitialPlannedQuantity=100,SalesPrice=10.0);
+        insert s;
+        // Create test Orders
+        Order ord = new Order(
+            AccountId = testAccount.Id,
+            Status = 'Draft',
+            Pricebook2Id = System.Label.Manufacturing_Pricebook_Id,
+            EffectiveDate = Date.today().adddays(-10)  // Effective date after StartDate
+        );
+        insert ord;
+        orderitem oi = new orderItem(OrderId=ord.id,Quantity=1,PricebookEntryId=pbEntry1.id,UnitPrice=11.00);
+        insert oi;
+        ord.status = 'Activated';
+        update ord;
+        SalesAgreement testAgreement1 = [SELECT Id, Status, AccountId, StartDate FROM SalesAgreement WHERE AccountId = :testAccount.Id];
+       testAgreement1.status = 'Draft';
+        update testAgreement1;
+        SalesAgreement testAgreement2 = [SELECT Id, AccountId, StartDate FROM SalesAgreement WHERE AccountId = :testAccount.Id LIMIT 1];
+        test.startTest();
+        SalesAgreementHandler.processSalesAgreement(new List<SalesAgreement>{testAgreement2});
+        test.stopTest();
+    }
+}
