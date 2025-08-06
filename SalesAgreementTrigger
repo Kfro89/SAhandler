@@ -1,0 +1,22 @@
+/**
+ * @description Trigger on SalesAgreement to process records after an update.
+ * Identifies agreements just moved to 'Activated' status and passes them to a handler.
+ */
+trigger SalesAgreementTrigger on SalesAgreement (after update) {
+    List<SalesAgreement> newlyActivatedAgreements = new List<SalesAgreement>();
+
+    for(SalesAgreement newSA : Trigger.New){
+        // Get the prior version of the record for comparison.
+        SalesAgreement oldSA = Trigger.oldMap.get(newSA.Id);
+
+        // Process only if status has changed to 'Activated'.
+        if(newSA.Status == 'Activated' && oldSA.Status != 'Activated') {
+            newlyActivatedAgreements.add(newSA);
+        }
+    }
+
+    // Invoke handler only if there are records to process.
+    if(!newlyActivatedAgreements.isEmpty()){
+        SalesAgreementHandler.processSalesAgreement(newlyActivatedAgreements);
+    }
+}
