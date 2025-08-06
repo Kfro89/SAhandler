@@ -1,0 +1,85 @@
+/**
+ * @description Handler class to process newly activated Sales Agreements.
+ * Links them to existing 'Activated' Orders that are not yet associated with an agreement.
+ * This version includes a two-step update process to comply with object validation rules.
+ */
+public class SalesAgreementHandler {
+
+    /**
+     * @description Links a list of Sales Agreements to matching Orders.
+     * @param saList The list of SalesAgreement records that have been activated.
+     */
+    public static void processSalesAgreement(List<SalesAgreement> saList){
+
+        // Re-query the Sales Agreements to ensure all necessary fields, like Pricebook2Id, are available.
+        List<SalesAgreement> agreementsWithDetails = [SELECT Id, AccountId, StartDate, PricebookId
+                                                      FROM SalesAgreement
+                                                      WHERE Id IN :saList];
+
+        // Group incoming Sales Agreements by AccountId to handle multiple agreements per account.
+        Map<Id, List<SalesAgreement>> agreementsByAccount = new Map<Id, List<SalesAgreement>>();
+        for (SalesAgreement sa : agreementsWithDetails) { // Use the newly queried list
+            if (!agreementsByAccount.containsKey(sa.AccountId)) {
+                agreementsByAccount.put(sa.AccountId, new List<SalesAgreement>());
+            }
+            agreementsByAccount.get(sa.AccountId).add(sa);
+        }
+
+        List<Order> ordersToProcess = new List<Order>();
+
+        // Query for unassigned, active Orders for the relevant accounts.
+        for (Order ord : [SELECT Id, AccountId, EffectiveDate, SalesAgreementId, Pricebook2Id
+                          FROM Order
+                          WHERE AccountId IN :agreementsByAccount.keySet()
+                          AND SalesAgreementId = NULL
+                          AND Status = 'Activated']) {
+
+            if (agreementsByAccount.containsKey(ord.AccountId)) {
+                List<SalesAgreement> potentialAgreements = agreementsByAccount.get(ord.AccountId);
+
+                for (SalesAgreement sa : potentialAgreements) {
+                    // Match criteria: Price Books must be identical and Order date must be on or after Agreement start date.
+                    if (sa.PricebookId == ord.Pricebook2Id && ord.EffectiveDate >= sa.StartDate) {
+
+                        // Prepare the order for update by setting the new values.
+                        ord.SalesAgreementId = sa.Id;
+                        // The status and other fields will be set in the DML section.
+                        ordersToProcess.add(ord);
+
+                        // Match found, break to avoid re-assigning the same order to another agreement.
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Perform DML update if orders were modified.
+        if (!ordersToProcess.isEmpty()) {
+            try {
+                // STEP 1: Update the non-status fields first to comply with validation rules.
+                List<Order> ordersForFirstUpdate = new List<Order>();
+                for(Order o : ordersToProcess){
+                    ordersForFirstUpdate.add(new Order(
+                        Id = o.Id,
+                        SalesAgreementId = o.SalesAgreementId,
+                        Activation_Required__c = true
+                    ));
+                }
+                update ordersForFirstUpdate;
+
+                // STEP 2: Now, update the status in a separate transaction.
+                List<Order> ordersForStatusUpdate = new List<Order>();
+                for(Order o : ordersToProcess){
+                    ordersForStatusUpdate.add(new Order(
+                        Id = o.Id,
+                        Status = 'Draft'
+                    ));
+                }
+                update ordersForStatusUpdate;
+
+            } catch (DmlException e) {
+                System.debug('Could not update orders. Error: ' + e.getMessage());
+            }
+        }
+    }
+}
